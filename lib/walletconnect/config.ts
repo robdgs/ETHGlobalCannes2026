@@ -61,24 +61,24 @@ export const networks = [polygonAmoy, ethereumSepolia];
 // for each payment session, preventing silent MetaMask auto-reconnect.
 
 const noopStorage = {
-  getItem:    (key: string) => null as any,
-  setItem:    (key: string, value: string) => {},
+  getItem: (key: string) => null as any,
+  setItem: (key: string, value: string) => {},
   removeItem: (key: string) => {},
-  key:        (index: number) => null as any,
-  length:     0,
-  clear:      () => {},
+  key: (index: number) => null as any,
+  length: 0,
+  clear: () => {},
 } as unknown as Storage;
 
 // ── Wagmi adapter ─────────────────────────────────────────────────────────────
 
 export const wagmiAdapter = new WagmiAdapter({
   storage: createStorage({ storage: noopStorage as any }) as any,
-  ssr:     false,
+  ssr: false,
   projectId,
   networks,
   transports: {
-    [polygonAmoy.id]:      http(),
-    [ethereumSepolia.id]:  http(),
+    [polygonAmoy.id]: http(),
+    [ethereumSepolia.id]: http(),
   },
 });
 
