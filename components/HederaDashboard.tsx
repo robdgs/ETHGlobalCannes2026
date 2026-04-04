@@ -50,10 +50,12 @@ const HASHSCAN = "https://hashscan.io/testnet";
 
 function links(topicId: string, tokenId: string, entry: EntryData) {
   const out: { label: string; url: string; icon: string }[] = [];
-  if (topicId) out.push({ label: "HCS Topic",      url: `${HASHSCAN}/topic/${topicId}`,                         icon: "⬡" });
-  if (tokenId) out.push({ label: "NFT Collection", url: `${HASHSCAN}/token/${tokenId}`,                         icon: "🪙" });
-  if (tokenId && entry.serialNumber)
-    out.push({ label: `NFT Serial #${entry.serialNumber}`, url: `${HASHSCAN}/token/${tokenId}/${entry.serialNumber}`, icon: "📜" });
+  const cleanTopicId = topicId?.trim() ?? "";
+  const cleanTokenId = tokenId?.trim() ?? "";
+  if (cleanTopicId) out.push({ label: "HCS Topic",      url: `${HASHSCAN}/topic/${cleanTopicId}`,                         icon: "⬡" });
+  if (cleanTokenId) out.push({ label: "NFT Collection", url: `${HASHSCAN}/token/${cleanTokenId}`,                         icon: "🪙" });
+  if (cleanTokenId && entry.serialNumber)
+    out.push({ label: `NFT Serial #${entry.serialNumber}`, url: `${HASHSCAN}/token/${cleanTokenId}/${entry.serialNumber}`, icon: "📜" });
   return out;
 }
 
@@ -392,8 +394,14 @@ export default function HederaDashboard({ refreshTrigger, newZKEntry }: Props) {
       }
       if (d.nfts?.length) setNfts(d.nfts);
       const st = await fetch("/api/status").then((r) => r.json()).catch(() => null);
-      if (st?.totalMinted)
-        setMetrics((m) => ({ ...m, total: st.totalMinted, topic: st.topicId ?? m.topic, token: st.tokenId ?? m.token }));
+      if (st?.status === "configured" && st?.topicId && st?.tokenId) {
+        setMetrics((m) => ({ 
+          ...m, 
+          total: st.totalMinted ?? m.total, 
+          topic: st.topicId.trim(),
+          token: st.tokenId.trim(),
+        }));
+      }
     } catch {}
     setLoading(false);
   }, []);
