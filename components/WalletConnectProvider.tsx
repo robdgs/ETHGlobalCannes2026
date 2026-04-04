@@ -16,7 +16,12 @@ import { createAppKit } from "@reown/appkit/react";
 import { ReownAuthentication } from "@reown/appkit-siwx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider, type Config } from "wagmi";
-import { wagmiAdapter, wagmiConfig, projectId, networks } from "@/lib/walletconnect/config";
+import {
+  wagmiAdapter,
+  wagmiConfig,
+  projectId,
+  networks,
+} from "@/lib/walletconnect/config";
 
 // Initialize AppKit once at module load (safe in client component)
 createAppKit({
@@ -27,7 +32,10 @@ createAppKit({
   metadata: {
     name: "ProvenanceChain",
     description: "Prove a document existed. Publicly. Immutably. Anonymously.",
-    url: typeof window !== "undefined" ? window.location.origin : "https://provenancechain.app",
+    url:
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://provenancechain.app",
     icons: ["https://avatars.githubusercontent.com/u/37784886"],
   },
   features: {
@@ -55,9 +63,7 @@ export default function WalletConnectProvider({
 }) {
   return (
     <WagmiProvider config={wagmiConfig as Config} initialState={undefined}>
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </WagmiProvider>
   );
 }
