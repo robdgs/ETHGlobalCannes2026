@@ -9,14 +9,16 @@ export const metadata: Metadata = {
     "Certify any document on Hedera's public blockchain. Instant, permanent, and if you need it — completely anonymous. No lawyer. No office. Just the ledger.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
       <body>
         <AuthenticationModal>
-          <WalletConnectProvider>
-            {children}
-          </WalletConnectProvider>
+          <WalletConnectProvider>{children}</WalletConnectProvider>
         </AuthenticationModal>
       </body>
     </html>
