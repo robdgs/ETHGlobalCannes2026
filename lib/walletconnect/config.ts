@@ -4,12 +4,11 @@
  *
  * Reown AppKit (WalletConnect v3) — ProvenanceChain configuration.
  *
- * Two networks:
- *   - Polygon Amoy testnet  → public WalletConnect payments
- *   - Polygon Amoy testnet  → Unlink ZK private payments (same network, different flow)
- *
- * Get a free Project ID at https://cloud.reown.com
- * Get a WCPay ID at https://dashboard.walletconnect.com
+ * Storage: in-memory only (no localStorage).
+ * The wallet disconnects on every page refresh, forcing the user to
+ * explicitly choose a wallet each time via the AppKit modal.
+ * This prevents MetaMask (or any other injected wallet) from
+ * auto-reconnecting and bypassing the wallet selection screen.
  */
 
 import { createStorage, http } from "wagmi";
@@ -24,7 +23,7 @@ if (!projectId && typeof window !== "undefined") {
   );
 }
 
-// ── Networks ─────────────────────────────────────────────────────────────────
+// ── Networks ──────────────────────────────────────────────────────────────────
 
 export const polygonAmoy = defineChain({
   id: 80002,
@@ -54,21 +53,32 @@ export const ethereumSepolia = defineChain({
 
 export const networks = [polygonAmoy, ethereumSepolia];
 
+// ── In-memory storage ─────────────────────────────────────────────────────────
+// Using a no-op storage means wagmi never writes the connection to
+// localStorage/sessionStorage. On refresh, isConnected is always false
+// and the user must explicitly pick a wallet via the AppKit modal.
+// This is intentional UX: ProvenanceChain wants explicit wallet selection
+// for each payment session, preventing silent MetaMask auto-reconnect.
+
+const noopStorage = {
+  getItem:    (key: string) => null as any,
+  setItem:    (key: string, value: string) => {},
+  removeItem: (key: string) => {},
+  key:        (index: number) => null as any,
+  length:     0,
+  clear:      () => {},
+} as unknown as Storage;
+
 // ── Wagmi adapter ─────────────────────────────────────────────────────────────
-// Initialize storage - localStorage on client only
-const storage =
-  typeof window !== "undefined"
-    ? createStorage({ storage: localStorage })
-    : undefined;
 
 export const wagmiAdapter = new WagmiAdapter({
-  ...(storage && { storage }),
-  ssr: false,
+  storage: createStorage({ storage: noopStorage as any }) as any,
+  ssr:     false,
   projectId,
   networks,
   transports: {
-    [polygonAmoy.id]: http(),
-    [ethereumSepolia.id]: http(),
+    [polygonAmoy.id]:      http(),
+    [ethereumSepolia.id]:  http(),
   },
 });
 

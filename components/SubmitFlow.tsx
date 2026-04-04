@@ -4,6 +4,7 @@ import {
   useAppKit,
   useAppKitAccount,
   useAppKitNetwork,
+  useDisconnect,
 } from "@reown/appkit/react";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { parseEther, stringToHex } from "viem";
@@ -29,6 +30,7 @@ interface ProofResult {
   paymentTxHash: string;
   explorerLinks: Record<string, string>;
   isPrivate: boolean;
+  isSimulated?: boolean;
   stealthAccount?: string;
   hfs?: HFSResult | null;
 }
@@ -67,6 +69,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
   const { close: closeAuthModal } = useAuthModal();
   const { address, isConnected } = useAppKitAccount();
   const { switchNetwork } = useAppKitNetwork();
+  const { disconnect } = useDisconnect();
   const { sendTransactionAsync } = useSendTransaction();
   const { data: receipt, isSuccess: txConfirmed } =
     useWaitForTransactionReceipt({ hash: pendingTx });
@@ -181,21 +184,26 @@ export default function SubmitFlow({ onProofCreated }: Props) {
           throw new Error(data.error ?? "Unlink payment failed");
         setStatusMsg("Recording on Hedera…");
         await new Promise((r) => setTimeout(r, 400));
+        const _base    = "https://hashscan.io/testnet";
+        const _topicId = data.result?.hcs?.topicId ?? "";
+        const _tokenId = data.result?.hts?.tokenId ?? "";
+        const _hcsTx   = data.result?.hcs?.transactionId ?? "";
+        const _nftTx   = data.result?.hts?.transactionId ?? "";
         const r2: ProofResult = {
-          mode: "unlink",
-          docHash: data.result?.docHash ?? docHash,
-          filename: data.result?.filename ?? filename,
-          seq:
-            data.result?.hcs?.sequenceNumber ??
-            Math.floor(Math.random() * 100) + 25,
-          serial: data.result?.hts?.serialNumber ?? 25,
+          mode:         "unlink",
+          docHash:      data.result?.docHash  ?? docHash,
+          filename:     data.result?.filename ?? filename,
+          seq:          data.result?.hcs?.sequenceNumber ?? 0,
+          serial:       data.result?.hts?.serialNumber   ?? 0,
           paymentTxHash: data.result?.payment?.relayTxHash ?? "0x" + rh(64),
+          isSimulated:  data.result?.payment?.simulated ?? true,
           explorerLinks: {
-            hcsTopic: `https://hashscan.io/testnet/topic/${
-              process.env.NEXT_PUBLIC_HCS_TOPIC_ID ?? ""
-            }`,
+            ...(_topicId ? { hcsTopic: `${_base}/topic/${_topicId}` } : {}),
+            ...(_tokenId ? { nftToken: `${_base}/token/${_tokenId}` } : {}),
+            ...(_hcsTx   ? { hcsTx: `${_base}/transaction/${encodeURIComponent(_hcsTx)}` } : {}),
+            ...(_nftTx   ? { nftTx: `${_base}/transaction/${encodeURIComponent(_nftTx)}` } : {}),
           },
-          isPrivate: true,
+          isPrivate:    true,
           stealthAccount: data.result?.hcs?.stealthSubmitter,
           hfs: data.result?.hfs ?? null,
         };
@@ -210,19 +218,29 @@ export default function SubmitFlow({ onProofCreated }: Props) {
       return;
     }
 
-    // WalletConnect path — phase 1
-    if (isConnected && address) {
-      sendWalletConnectTx();
-    } else {
-      setStatusMsg("Opening wallet selector…");
-      setAwaitingConnection(true);
-      try {
-        await open({ view: "Connect" });
-      } catch (e: any) {
-        setAwaitingConnection(false);
-        setError(e.message || "Could not open wallet modal");
-        setStatusMsg("");
+    // WalletConnect path — always open AppKit modal for explicit wallet selection.
+    //
+    // Sequence:
+    //  1. If connected, call AppKit disconnect() — syncs both AppKit + wagmi state.
+    //     (wagmi's useDisconnect alone causes a desync → "Connector not connected")
+    //  2. Wait for isConnected to settle to false before opening modal.
+    //  3. Set awaitingConnection = true AFTER disconnect so the useEffect
+    //     doesn't fire on the intermediate disconnect state change.
+    //  4. open({ view: "Connect" }) — shows wallet list (MetaMask, Rainbow, QR…).
+    //  5. useEffect watches isConnected: when user picks a wallet and it flips
+    //     to true, sendWalletConnectTx() fires.
+    setStatusMsg("Opening wallet selector…");
+    try {
+      if (isConnected) {
+        await disconnect();                          // AppKit + wagmi in sync
+        await new Promise((r) => setTimeout(r, 300)); // let state settle
       }
+      setAwaitingConnection(true);                   // arm the effect only now
+      await open({ view: "Connect" });
+    } catch (e: any) {
+      setAwaitingConnection(false);
+      setError(e.message || "Could not open wallet modal");
+      setStatusMsg("");
     }
   }
 
@@ -590,7 +608,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
               >
                 {payMode === "walletconnect" ? (
                   <>
-                    → Choose your wallet in the AppKit modal
+                    → AppKit modal opens — choose MetaMask, Rainbow, Coinbase or scan QR
                     <br />→ Pay <b style={{ color: "var(--p)" }}>0.001 MATIC</b> on Polygon Amoy
                     <br />→ Certificate issued on Hedera HCS + NFT + <b>HFS</b>
                   </>
@@ -602,13 +620,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                     <br />→ Document provable · identity: never revealed
                   </>
                 )}
-                {isConnected && address && (
-                  <div
-                    style={{ marginTop: 6, color: "var(--teal-dk)", fontSize: 12, fontWeight: 500 }}
-                  >
-                    ✓ Wallet connected: {address.slice(0, 8)}…{address.slice(-6)}
-                  </div>
-                )}
+
               </div>
             )}
 
@@ -619,9 +631,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
               disabled={!payMode}
               onClick={runPayment}
             >
-              {payMode === "walletconnect" && isConnected
-                ? "Pay with connected wallet →"
-                : payMode === "walletconnect"
+              {payMode === "walletconnect"
                 ? "Select wallet →"
                 : "Pay anonymously with Unlink →"}
             </button>
@@ -701,18 +711,25 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                 <span style={{ fontSize: 14, fontWeight: 600, color: "var(--teal-dk)" }}>
                   ✓ Certificate issued
                 </span>
-                <span
-                  style={{
-                    fontSize: 11,
-                    padding: "3px 10px",
-                    borderRadius: 20,
-                    background: result.isPrivate ? "var(--p-lt)" : "var(--teal-lt)",
-                    color: result.isPrivate ? "var(--p-dk)" : "var(--teal-dk)",
-                    fontWeight: 500,
-                  }}
-                >
-                  {result.isPrivate ? "Anonymous" : "Public"}
-                </span>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      padding: "3px 10px",
+                      borderRadius: 20,
+                      background: result.isPrivate ? "var(--p-lt)" : "var(--teal-lt)",
+                      color: result.isPrivate ? "var(--p-dk)" : "var(--teal-dk)",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {result.isPrivate ? "Anonymous" : "Public"}
+                  </span>
+                  {result.isSimulated && (
+                    <span style={{ fontSize: 10, padding: "3px 10px", borderRadius: 20, background: "#fff3cd", color: "#856404", fontWeight: 500, border: "0.5px solid #ffc107" }}>
+                      🟡 Simulated
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Done body */}
@@ -815,7 +832,6 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                       >
                         📥 Open Certificate
                       </a>
-                     
                     </div>
                   </div>
                 ) : null}
