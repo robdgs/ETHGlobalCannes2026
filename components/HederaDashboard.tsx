@@ -227,22 +227,7 @@ function DetailModal({
                 >
                   📥 Open Certificate
                 </a>
-                {hfsExplorerUrl && (
-                  <a
-                    href={hfsExplorerUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: 6,
-                      padding: "8px 14px", borderRadius: "var(--r)",
-                      background: "transparent", color: "var(--p-dk)",
-                      fontSize: 12, fontWeight: 500, textDecoration: "none",
-                      border: "0.5px solid var(--p-mid)",
-                    }}
-                  >
-                    ⬡ HashScan ↗
-                  </a>
-                )}
+                
               </div>
             </div>
           ) : (

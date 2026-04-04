@@ -170,7 +170,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
         const fd = new FormData();
         if (file) fd.append("file", file);
         else fd.append("text", text.trim());
-        fd.append("chainId", "80002");
+        fd.append("chainId", "84532"); // Unlink only works on Base Sepolia
         await new Promise((r) => setTimeout(r, 1200));
         setStatusMsg("Shielding identity…");
         await new Promise((r) => setTimeout(r, 900));
@@ -815,26 +815,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                       >
                         📥 Open Certificate
                       </a>
-                      <a
-                        href={result.hfs.explorerUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "8px 14px",
-                          borderRadius: "var(--r)",
-                          background: "transparent",
-                          color: "var(--p-dk)",
-                          fontSize: 12,
-                          fontWeight: 500,
-                          textDecoration: "none",
-                          border: "0.5px solid var(--p-mid)",
-                        }}
-                      >
-                        ⬡ HashScan ↗
-                      </a>
+                     
                     </div>
                   </div>
                 ) : null}
