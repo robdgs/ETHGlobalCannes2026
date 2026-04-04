@@ -30,7 +30,7 @@ interface Props {
   newZKEntry?: ZKEntry | null;
 }
 
-type Tab = "all" | "nft" ;
+type Tab = "all" | "nft" | "anon";
 
 // ── Seed data (no fileId — certificates only exist for real on-chain entries) ─
 
@@ -135,7 +135,7 @@ function DetailModal({
                   fontSize: 11, padding: "2px 9px", borderRadius: 20, fontWeight: 500, color: "#fff",
                   background: isAnon ? "var(--p)" : isNft ? "var(--teal)" : "var(--blue)",
                 }}>
-                  { isNft ? "NFT Certificate" : "Public"}
+                  {isAnon ? "Anonymous" : isNft ? "NFT Certificate" : "Public"}
                 </span>
                 <span style={{
                   fontSize: 11, padding: "2px 9px", borderRadius: 20, fontWeight: 500,
@@ -227,7 +227,22 @@ function DetailModal({
                 >
                   📥 Open Certificate
                 </a>
-                
+                {hfsExplorerUrl && (
+                  <a
+                    href={hfsExplorerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "8px 14px", borderRadius: "var(--r)",
+                      background: "transparent", color: "var(--p-dk)",
+                      fontSize: 12, fontWeight: 500, textDecoration: "none",
+                      border: "0.5px solid var(--p-mid)",
+                    }}
+                  >
+                    ⬡ HashScan ↗
+                  </a>
+                )}
               </div>
             </div>
           ) : (
@@ -387,15 +402,25 @@ export default function HederaDashboard({ refreshTrigger, newZKEntry }: Props) {
 
   async function verify() {
     const h = vHash.trim(); if (!h) return;
+    if (!/^[0-9a-f]{64}$/i.test(h)) {
+      setVRes({ ok: false, msg: "Please enter a valid 64-character SHA-256 hash." });
+      return;
+    }
     setVBusy(true); setVRes(null);
     try {
       const res = await fetch(`/api/verify?hash=${encodeURIComponent(h)}`);
       const d   = await res.json();
-      setVRes(d.verified
-        ? { ok: true,  msg: `✓ Document is notarized · HCS sequence #${d.proof?.sequenceNumber}` }
-        : { ok: false, msg: "Not found — this document has not been notarized." },
-      );
-    } catch { setVRes({ ok: false, msg: "Query failed. Check your connection." }); }
+      if (!res.ok) {
+        setVRes({ ok: false, msg: d.error ?? `Server error (${res.status})` });
+      } else {
+        setVRes(d.verified
+          ? { ok: true,  msg: `✓ Document is notarized · HCS sequence #${d.proof?.sequenceNumber}` }
+          : { ok: false, msg: "Not found — this document has not been notarized." },
+        );
+      }
+    } catch (err: any) {
+      setVRes({ ok: false, msg: `Query failed: ${err.message ?? "network error"}` });
+    }
     setVBusy(false);
   }
 
@@ -419,7 +444,8 @@ export default function HederaDashboard({ refreshTrigger, newZKEntry }: Props) {
           {[
             { label: "Documents notarized", val: metrics.total, sub: "on Hedera testnet",  color: "var(--p)" },
             { label: "HCS topic",           val: metrics.topic, sub: `sequence #${metrics.total}`, color: "var(--t0)", small: true },
-            { label: "NFT certificates",    val: metrics.total, sub: "HTS token PCP",      color: "var(--p-dk)" },
+            { label: "NFT certificates",    val: metrics.total, sub: "HTS token PCP",      color: "var(--teal-dk)" },
+            { label: "Anonymous",           val: metrics.anon,  sub: "via Unlink ZK",      color: "var(--p-dk)" },
           ].map((m) => (
             <div key={m.label} style={metricCard}>
               <div style={{ fontSize: 12, color: "var(--t2)", marginBottom: 6 }}>{m.label}</div>
@@ -455,9 +481,9 @@ export default function HederaDashboard({ refreshTrigger, newZKEntry }: Props) {
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 value={vHash} onChange={(e) => setVHash(e.target.value)}
-                placeholder="  Paste the SHA-256 hash of any document to verify it"
+                placeholder="Paste the SHA-256 hash of any document to verify it"
                 onKeyDown={(e) => e.key === "Enter" && verify()}
-                style={{ flex: 1, marginBottom: 0, borderRadius: "var(--r)", border: "0.5px solid var(--bd)", background: "#fff", padding: "10px 14px", fontSize: 13, color: "var(--t0)" }}
+                style={{ flex: 1, marginBottom: 0 }}
               />
               <button onClick={verify} disabled={vBusy} style={{ padding: "10px 18px", borderRadius: "var(--r)", background: "var(--p)", color: "#fff", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }}>
                 {vBusy ? "…" : "Verify"}
@@ -472,7 +498,7 @@ export default function HederaDashboard({ refreshTrigger, newZKEntry }: Props) {
 
           {/* Tabs */}
           <div style={{ display: "flex", borderBottom: "0.5px solid var(--bd)" }}>
-            {([["all", "All notarizations"], ["nft", "Certificates (NFT)"]] as [Tab, string][]).map(([id, label]) => (
+            {([["all", "All notarizations"], ["nft", "Certificates (NFT)"], ["anon", "Anonymous"]] as [Tab, string][]).map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: tab === id ? 500 : 400, color: tab === id ? "var(--p)" : "var(--t2)", background: tab === id ? "var(--p-lt)" : "transparent", border: "none", borderRight: "0.5px solid var(--bd)", cursor: "pointer", fontFamily: "var(--sans)", transition: "all 0.15s" }}>
                 {label}
               </button>
@@ -502,7 +528,16 @@ export default function HederaDashboard({ refreshTrigger, newZKEntry }: Props) {
                   })
             )}
 
-            
+            {tab === "anon" && (
+              zks.length === 0
+                ? <div style={{ padding: "20px", fontSize: 13, color: "var(--t2)", lineHeight: 1.7 }}>
+                    No anonymous notarizations yet. Choose <b>Unlink ZK</b> in the payment step to submit privately.
+                  </div>
+                : zks.map((z, i) => {
+                    const zkEntry: EntryData = { seq: z.seq, ts: z.ts, fn: z.filename + " (anonymous)", hash: z.hash, mode: "anon", fileId: null };
+                    return <Entry key={i} entry={zkEntry} onClick={() => setSelectedEntry(zkEntry)} />;
+                  })
+            )}
           </div>
 
           <div style={{ padding: "10px 20px", borderTop: "0.5px solid var(--bd)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
