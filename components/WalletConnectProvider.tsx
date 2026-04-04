@@ -23,36 +23,38 @@ import {
   networks,
 } from "@/lib/walletconnect/config";
 
-// Initialize AppKit once at module load (safe in client component)
-createAppKit({
-  adapters: [wagmiAdapter],
-  projectId,
-  networks: networks as any,
-  defaultNetwork: networks[0],
-  metadata: {
-    name: "ProvenanceChain",
-    description: "Prove a document existed. Publicly. Immutably. Anonymously.",
-    url:
-      typeof window !== "undefined"
-        ? window.location.origin
-        : "https://provenancechain.app",
-    icons: ["https://avatars.githubusercontent.com/u/37784886"],
-  },
-  features: {
-    analytics: true,
-    email: false,
-    socials: false,
-    onramp: false,
-  },
-  themeMode: "dark",
-  themeVariables: {
-    "--w3m-accent": "#7B6EF6",
-    "--w3m-border-radius-master": "2px",
-  },
-  siwx: new ReownAuthentication({
-    required: false, // Set to false to allow wallet connection without signature
-  }),
-});
+// Initialize AppKit only if projectId is configured
+if (projectId) {
+  createAppKit({
+    adapters: [wagmiAdapter],
+    projectId,
+    networks: networks as any,
+    defaultNetwork: networks[0],
+    metadata: {
+      name: "ProvenanceChain",
+      description: "Prove a document existed. Publicly. Immutably. Anonymously.",
+      url:
+        typeof window !== "undefined"
+          ? window.location.origin
+          : "https://provenancechain.app",
+      icons: ["https://avatars.githubusercontent.com/u/37784886"],
+    },
+    features: {
+      analytics: true,
+      email: false,
+      socials: false,
+      onramp: false,
+    },
+    themeMode: "dark",
+    themeVariables: {
+      "--w3m-accent": "#7B6EF6",
+      "--w3m-border-radius-master": "2px",
+    },
+    siwx: new ReownAuthentication({
+      required: false, // Set to false to allow wallet connection without signature
+    }),
+  });
+}
 
 const queryClient = new QueryClient();
 

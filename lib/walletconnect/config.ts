@@ -55,20 +55,14 @@ export const ethereumSepolia = defineChain({
 export const networks = [polygonAmoy, ethereumSepolia];
 
 // ── Wagmi adapter ─────────────────────────────────────────────────────────────
-// Initialize with minimal config first, storage is browser-only
+// Initialize storage - localStorage on client only
+const storage =
+  typeof window !== "undefined"
+    ? createStorage({ storage: localStorage })
+    : undefined;
+
 export const wagmiAdapter = new WagmiAdapter({
-  storage: createStorage({
-    storage: (typeof window !== "undefined"
-      ? localStorage
-      : {
-          getItem: () => null,
-          setItem: () => {},
-          removeItem: () => {},
-          key: () => null,
-          length: 0,
-          clear: () => {},
-        }) as Storage,
-  }),
+  ...(storage && { storage }),
   ssr: false,
   projectId,
   networks,

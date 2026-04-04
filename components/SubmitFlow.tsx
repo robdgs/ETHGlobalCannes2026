@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   useAppKit,
   useAppKitAccount,
@@ -13,6 +13,13 @@ import { useAuthModal } from "@/lib/authModalContext";
 type Step = "doc" | "pay" | "processing" | "done";
 type PayMode = "walletconnect" | "unlink" | null;
 
+interface HFSResult {
+  fileId: string;
+  size: number;
+  certificateUrl: string;
+  explorerUrl: string;
+}
+
 interface ProofResult {
   mode: PayMode;
   docHash: string;
@@ -23,7 +30,9 @@ interface ProofResult {
   explorerLinks: Record<string, string>;
   isPrivate: boolean;
   stealthAccount?: string;
+  hfs?: HFSResult | null;
 }
+
 interface Props {
   onProofCreated?: (r: ProofResult) => void;
 }
@@ -50,6 +59,8 @@ export default function SubmitFlow({ onProofCreated }: Props) {
   const [result, setResult] = useState<ProofResult | null>(null);
   const [dragging, setDragging] = useState(false);
   const [pendingTx, setPendingTx] = useState<`0x${string}` | undefined>();
+  const [awaitingConnection, setAwaitingConnection] = useState(false);
+
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { open } = useAppKit();
@@ -74,6 +85,14 @@ export default function SubmitFlow({ onProofCreated }: Props) {
     });
   }
 
+  // Phase 2: once wallet connects via AppKit modal, fire the tx
+  useEffect(() => {
+    if (!awaitingConnection || !isConnected || !address) return;
+    setAwaitingConnection(false);
+    sendWalletConnectTx();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingConnection, isConnected, address]);
+
   const hasDoc = file != null || text.trim().length > 0;
 
   async function computeHash(): Promise<{ hash: string; fname: string }> {
@@ -92,6 +111,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
     setText("");
     setError("");
   };
+
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
@@ -112,15 +132,38 @@ export default function SubmitFlow({ onProofCreated }: Props) {
     setStatusMsg("");
   }
 
+  async function sendWalletConnectTx() {
+    try {
+      await switchNetwork(polygonAmoy as any);
+      setStep("processing");
+      setStatusMsg("Confirm the payment in your wallet…");
+      const memo = `PROVE:${docHash}:${btoa(filename).slice(0, 40)}`;
+      const txHash = await sendTransactionAsync({
+        to: RECEIVER,
+        value: parseEther("0.001"),
+        data: stringToHex(memo),
+        chainId: polygonAmoy.id,
+        maxPriorityFeePerGas: BigInt(30) * BigInt(10) ** BigInt(9),
+        maxFeePerGas: BigInt(50) * BigInt(10) ** BigInt(9),
+      });
+      setPendingTx(txHash);
+      setStatusMsg("Waiting for on-chain confirmation…");
+    } catch (e: any) {
+      const msg = e.message ?? "";
+      if (msg.includes("rejected") || msg.includes("denied") || e.code === 4001)
+        setError("Transaction rejected in wallet.");
+      else setError(msg || "Wallet error");
+      setStep("pay");
+      setStatusMsg("");
+    }
+  }
+
   async function runPayment() {
     if (!payMode) return;
     setError("");
+    closeAuthModal();
 
     if (payMode === "unlink") {
-      // Close authentication modal before processing unlink payment
-      closeAuthModal();
-
-      // Unlink: call our API which handles private payment
       setStep("processing");
       setStatusMsg("Generating ZK proof…");
       try {
@@ -132,10 +175,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
         setStatusMsg("Shielding identity…");
         await new Promise((r) => setTimeout(r, 900));
         setStatusMsg("Unlink relay confirming…");
-        const res = await fetch("/api/unlink/pay", {
-          method: "POST",
-          body: fd,
-        });
+        const res = await fetch("/api/unlink/pay", { method: "POST", body: fd });
         const data = await res.json();
         if (!res.ok || data.error)
           throw new Error(data.error ?? "Unlink payment failed");
@@ -157,6 +197,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
           },
           isPrivate: true,
           stealthAccount: data.result?.hcs?.stealthSubmitter,
+          hfs: data.result?.hfs ?? null,
         };
         setResult(r2);
         setStep("done");
@@ -169,41 +210,19 @@ export default function SubmitFlow({ onProofCreated }: Props) {
       return;
     }
 
-    // WalletConnect path
-    try {
-      // Close authentication modal before opening wallet modal
-      closeAuthModal();
-
-      // Always show wallet modal first, regardless of isConnected state
-      // This ensures WalletConnect popup shows instead of auto-using MetaMask
-      setStatusMsg("Opening wallet modal…");
-      await open({ view: "Connect" });
-
-      // Wait a moment for wallet to connect
-      await new Promise((r) => setTimeout(r, 500));
-
-      // Now proceed with payment on Polygon Amoy
-      await switchNetwork(polygonAmoy as any);
-      setStep("processing");
-      setStatusMsg("Confirm the payment in your wallet…");
-      const memo = `PROVE:${docHash}:${btoa(filename).slice(0, 40)}`;
-      const txHash = await sendTransactionAsync({
-        to: RECEIVER,
-        value: parseEther("0.001"),
-        data: stringToHex(memo),
-        chainId: polygonAmoy.id,
-        maxPriorityFeePerGas: BigInt(30) * BigInt(10) ** BigInt(9), // 30 Gwei — Polygon Amoy minimum
-        maxFeePerGas: BigInt(50) * BigInt(10) ** BigInt(9), // 50 Gwei — reasonable estimate
-      });
-      setPendingTx(txHash);
-      setStatusMsg("Waiting for on-chain confirmation…");
-    } catch (e: any) {
-      const msg = e.message ?? "";
-      if (msg.includes("rejected") || msg.includes("denied") || e.code === 4001)
-        setError("Transaction rejected in wallet.");
-      else setError(msg || "Wallet error");
-      setStep("pay");
-      setStatusMsg("");
+    // WalletConnect path — phase 1
+    if (isConnected && address) {
+      sendWalletConnectTx();
+    } else {
+      setStatusMsg("Opening wallet selector…");
+      setAwaitingConnection(true);
+      try {
+        await open({ view: "Connect" });
+      } catch (e: any) {
+        setAwaitingConnection(false);
+        setError(e.message || "Could not open wallet modal");
+        setStatusMsg("");
+      }
     }
   }
 
@@ -222,7 +241,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
       if (res.status === 503)
         throw new Error("Hedera not configured — run: npm run setup");
       if (!res.ok || data.error) throw new Error(data.error ?? "Hedera failed");
-      setStatusMsg("Issuing NFT certificate…");
+      setStatusMsg("Generating certificate on HFS…");
       await new Promise((r) => setTimeout(r, 400));
       const r: ProofResult = {
         mode: "walletconnect",
@@ -233,6 +252,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
         paymentTxHash: txHash,
         explorerLinks: data.explorerLinks,
         isPrivate: false,
+        hfs: data.hfs ?? null,
       };
       setResult(r);
       setStep("done");
@@ -256,6 +276,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
     setResult(null);
     setError("");
     setStatusMsg("");
+    setAwaitingConnection(false);
   }
 
   const S = {
@@ -326,6 +347,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
 
   return (
     <div style={S.card}>
+      {/* ── Header ── */}
       <div style={S.cardHdr}>
         <div
           style={{
@@ -340,12 +362,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
           }}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path
-              d="M2 2h7l3 3v7H2V2Z"
-              stroke="#534AB7"
-              strokeWidth="1.2"
-              fill="none"
-            />
+            <path d="M2 2h7l3 3v7H2V2Z" stroke="#534AB7" strokeWidth="1.2" fill="none" />
             <path d="M9 2v3h3" stroke="#534AB7" strokeWidth="1.2" />
             <path d="M4 7h6M4 9h4" stroke="#534AB7" strokeWidth="1" />
           </svg>
@@ -354,31 +371,20 @@ export default function SubmitFlow({ onProofCreated }: Props) {
           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--t0)" }}>
             Notarize a document
           </div>
-          <div style={{ fontSize: 12, color: "var(--t2)" }}>
-            Three steps · under a minute
-          </div>
+          <div style={{ fontSize: 12, color: "var(--t2)" }}>Three steps · under a minute</div>
         </div>
       </div>
+
       <div style={S.cardBody}>
-        {/* Step indicator */}
-        <div
-          style={{ display: "flex", alignItems: "center", marginBottom: 20 }}
-        >
+        {/* ── Step indicator ── */}
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 20 }}>
           {(["doc", "pay", "done"] as const).map((s, i) => {
             const st = stepState(s);
-            const labels = {
-              doc: "Select document",
-              pay: "Pay",
-              done: "Certificate",
-            };
+            const labels = { doc: "Select document", pay: "Pay", done: "Certificate" };
             return (
               <div
                 key={s}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  flex: i < 2 ? 1 : "none",
-                }}
+                style={{ display: "flex", alignItems: "center", flex: i < 2 ? 1 : "none" }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                   <div style={S.stepNum(st)}>{st === "done" ? "✓" : i + 1}</div>
@@ -412,37 +418,26 @@ export default function SubmitFlow({ onProofCreated }: Props) {
           })}
         </div>
 
-        {/* STEP 1 */}
+        {/* ── STEP 1: Document ── */}
         {step === "doc" && (
           <div className="fadein">
             <div
               onClick={() => fileRef.current?.click()}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragging(true);
-              }}
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
               style={{
-                border: `1.5px dashed ${
-                  dragging ? "var(--p)" : file ? "var(--teal)" : "var(--bd2)"
-                }`,
+                border: `1.5px dashed ${dragging ? "var(--p)" : file ? "var(--teal)" : "var(--bd2)"}`,
                 borderRadius: "var(--r)",
                 padding: "24px 16px",
                 cursor: "pointer",
                 textAlign: "center",
-                background: file
-                  ? "var(--teal-lt)"
-                  : dragging
-                  ? "var(--p-lt)"
-                  : "var(--bg2)",
+                background: file ? "var(--teal-lt)" : dragging ? "var(--p-lt)" : "var(--bg2)",
                 marginBottom: 12,
                 transition: "all 0.15s",
               }}
             >
-              <div style={{ fontSize: 28, marginBottom: 8 }}>
-                {file ? "✓" : "📄"}
-              </div>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>{file ? "✓" : "📄"}</div>
               <div
                 style={{
                   fontSize: 14,
@@ -453,12 +448,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
               >
                 {file ? file.name : "Drop your document here"}
               </div>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: file ? "var(--teal)" : "var(--t2)",
-                }}
-              >
+              <div style={{ fontSize: 12, color: file ? "var(--teal)" : "var(--t2)" }}>
                 {file
                   ? `${(file.size / 1024).toFixed(0)} KB · ready`
                   : "PDF, DOCX, TXT, images — any format"}
@@ -467,11 +457,10 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                 ref={fileRef}
                 type="file"
                 hidden
-                onChange={(e) => {
-                  if (e.target.files?.[0]) handleFile(e.target.files[0]);
-                }}
+                onChange={(e) => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }}
               />
             </div>
+
             <div
               style={{
                 display: "flex",
@@ -482,20 +471,19 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                 margin: "10px 0",
               }}
             >
-              <div style={{ flex: 1, height: 0.5, background: "var(--bd)" }} />{" "}
-              or{" "}
+              <div style={{ flex: 1, height: 0.5, background: "var(--bd)" }} />
+              or
               <div style={{ flex: 1, height: 0.5, background: "var(--bd)" }} />
             </div>
+
             <textarea
               rows={3}
               placeholder="Paste any text — a contract, a statement, a message — to certify it existed at this moment."
               value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                setFile(null);
-              }}
+              onChange={(e) => { setText(e.target.value); setFile(null); }}
               style={{ marginBottom: 14 }}
             />
+
             <div
               style={{
                 fontSize: 12,
@@ -511,24 +499,19 @@ export default function SubmitFlow({ onProofCreated }: Props) {
             >
               <span>🔒</span>
               <span>
-                Your file never leaves your device. Only its fingerprint
-                (SHA-256 hash) is sent to the blockchain.
+                Your file never leaves your device. Only its fingerprint (SHA-256 hash) is sent to
+                the blockchain.
               </span>
             </div>
+
             {error && <ErrorBox msg={error} />}
-            <button
-              style={S.btn("var(--p)", !hasDoc)}
-              disabled={!hasDoc}
-              onClick={goToPay}
-            >
+
+            <button style={S.btn("var(--p)", !hasDoc)} disabled={!hasDoc} onClick={goToPay}>
               {statusMsg ? (
                 <>
                   <span
                     className="spinner spinner-p"
-                    style={{
-                      borderTopColor: "var(--p)",
-                      borderColor: "rgba(127,119,221,0.2)",
-                    }}
+                    style={{ borderTopColor: "var(--p)", borderColor: "rgba(127,119,221,0.2)" }}
                   />
                   {statusMsg}
                 </>
@@ -539,7 +522,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
           </div>
         )}
 
-        {/* STEP 2 */}
+        {/* ── STEP 2: Pay ── */}
         {step === "pay" && (
           <div className="fadein">
             <div
@@ -550,14 +533,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                 padding: "10px 13px",
               }}
             >
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--p-dk)",
-                  marginBottom: 3,
-                  fontWeight: 500,
-                }}
-              >
+              <div style={{ fontSize: 11, color: "var(--p-dk)", marginBottom: 3, fontWeight: 500 }}>
                 Document fingerprint (SHA-256)
               </div>
               <div
@@ -571,24 +547,12 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                 {docHash}
               </div>
             </div>
-            <div
-              style={{
-                fontSize: 14,
-                fontWeight: 600,
-                color: "var(--t0)",
-                marginBottom: 10,
-              }}
-            >
+
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--t0)", marginBottom: 10 }}>
               How would you like to pay?
             </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 8,
-                marginBottom: 12,
-              }}
-            >
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
               <PayCard
                 selected={payMode === "walletconnect"}
                 onClick={() => setPayMode("walletconnect")}
@@ -610,6 +574,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                 desc="Zero-knowledge proof. Nobody knows it was you. Ever."
               />
             </div>
+
             {payMode && (
               <div
                 className="fadein"
@@ -625,61 +590,44 @@ export default function SubmitFlow({ onProofCreated }: Props) {
               >
                 {payMode === "walletconnect" ? (
                   <>
-                    → A WalletConnect modal opens — choose any EVM wallet
-                    <br />→ Pay <b style={{ color: "var(--p)" }}>
-                      0.001 MATIC
-                    </b>{" "}
-                    on Polygon Amoy
-                    <br />
-                    → Your notarization is public on-chain
-                    <br />→ Certificate issued on Hedera HCS + NFT minted
+                    → Choose your wallet in the AppKit modal
+                    <br />→ Pay <b style={{ color: "var(--p)" }}>0.001 MATIC</b> on Polygon Amoy
+                    <br />→ Certificate issued on Hedera HCS + NFT + <b>HFS</b>
                   </>
                 ) : (
                   <>
                     → ZK proof generated in your browser
-                    <br />
-                    → Unlink relay submits anonymously
-                    <br />
-                    → Your identity is never recorded anywhere
+                    <br />→ Unlink relay submits anonymously
+                    <br />→ Your identity is never recorded anywhere
                     <br />→ Document provable · identity: never revealed
                   </>
                 )}
                 {isConnected && address && (
                   <div
-                    style={{
-                      marginTop: 6,
-                      color: "var(--teal-dk)",
-                      fontSize: 12,
-                      fontWeight: 500,
-                    }}
+                    style={{ marginTop: 6, color: "var(--teal-dk)", fontSize: 12, fontWeight: 500 }}
                   >
-                    ✓ Wallet connected: {address.slice(0, 8)}…
-                    {address.slice(-6)}
+                    ✓ Wallet connected: {address.slice(0, 8)}…{address.slice(-6)}
                   </div>
                 )}
               </div>
             )}
+
             {error && <ErrorBox msg={error} />}
+
             <button
-              style={S.btn(
-                payMode === "unlink" ? "var(--p-dk)" : "var(--p)",
-                !payMode,
-              )}
+              style={S.btn(payMode === "unlink" ? "var(--p-dk)" : "var(--p)", !payMode)}
               disabled={!payMode}
               onClick={runPayment}
             >
-              {payMode === "unlink"
-                ? "Pay anonymously with Unlink →"
-                : isConnected
-                ? "Open WalletConnect →"
-                : "Connect wallet →"}
+              {payMode === "walletconnect" && isConnected
+                ? "Pay with connected wallet →"
+                : payMode === "walletconnect"
+                ? "Select wallet →"
+                : "Pay anonymously with Unlink →"}
             </button>
+
             <button
-              onClick={() => {
-                setStep("doc");
-                setPayMode(null);
-                setError("");
-              }}
+              onClick={() => { setStep("doc"); setPayMode(null); setError(""); }}
               style={{
                 width: "100%",
                 marginTop: 8,
@@ -696,12 +644,9 @@ export default function SubmitFlow({ onProofCreated }: Props) {
           </div>
         )}
 
-        {/* STEP 3: PROCESSING */}
+        {/* ── STEP 3: Processing ── */}
         {step === "processing" && (
-          <div
-            className="fadein"
-            style={{ textAlign: "center", padding: "24px 0" }}
-          >
+          <div className="fadein" style={{ textAlign: "center", padding: "24px 0" }}>
             <div
               className="spinner spinner-p"
               style={{
@@ -712,19 +657,10 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                 borderTopColor: "var(--p)",
               }}
             />
-            <div
-              style={{
-                fontSize: 15,
-                fontWeight: 500,
-                color: "var(--t0)",
-                marginBottom: 6,
-              }}
-            >
+            <div style={{ fontSize: 15, fontWeight: 500, color: "var(--t0)", marginBottom: 6 }}>
               {statusMsg || "Processing…"}
             </div>
-            <div style={{ fontSize: 12, color: "var(--t2)" }}>
-              This takes a few seconds
-            </div>
+            <div style={{ fontSize: 12, color: "var(--t2)" }}>This takes a few seconds</div>
             {error && (
               <>
                 <div style={{ marginTop: 16 }}>
@@ -741,17 +677,18 @@ export default function SubmitFlow({ onProofCreated }: Props) {
           </div>
         )}
 
-        {/* STEP 4: DONE */}
+        {/* ── STEP 4: Done ── */}
         {step === "done" && result && (
           <div className="fadein">
             <div
               style={{
-                border: `1.5px solid var(--teal)`,
+                border: "1.5px solid var(--teal)",
                 borderRadius: "var(--r)",
                 overflow: "hidden",
                 marginBottom: 14,
               }}
             >
+              {/* Done header */}
               <div
                 style={{
                   background: "var(--teal-lt)",
@@ -761,13 +698,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                   justifyContent: "space-between",
                 }}
               >
-                <span
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "var(--teal-dk)",
-                  }}
-                >
+                <span style={{ fontSize: 14, fontWeight: 600, color: "var(--teal-dk)" }}>
                   ✓ Certificate issued
                 </span>
                 <span
@@ -775,9 +706,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                     fontSize: 11,
                     padding: "3px 10px",
                     borderRadius: 20,
-                    background: result.isPrivate
-                      ? "var(--p-lt)"
-                      : "var(--teal-lt)",
+                    background: result.isPrivate ? "var(--p-lt)" : "var(--teal-lt)",
                     color: result.isPrivate ? "var(--p-dk)" : "var(--teal-dk)",
                     fontWeight: 500,
                   }}
@@ -785,15 +714,10 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                   {result.isPrivate ? "Anonymous" : "Public"}
                 </span>
               </div>
-              <div
-                style={{ padding: "14px 16px", fontSize: 13, lineHeight: 2 }}
-              >
-                <RRow
-                  k="Document hash"
-                  v={result.docHash}
-                  mono
-                  vc="var(--p-dk)"
-                />
+
+              {/* Done body */}
+              <div style={{ padding: "14px 16px", fontSize: 13, lineHeight: 2 }}>
+                <RRow k="Document hash" v={result.docHash} mono vc="var(--p-dk)" />
                 <RRow
                   k="HCS sequence"
                   v={`#${result.seq} · consensus recorded`}
@@ -806,11 +730,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                 />
                 <RRow
                   k="Payment"
-                  v={
-                    result.isPrivate
-                      ? "Unlink ZK (anonymous)"
-                      : "WalletConnect Pay"
-                  }
+                  v={result.isPrivate ? "Unlink ZK (anonymous)" : "WalletConnect Pay"}
                 />
                 <RRow
                   k="Identity"
@@ -821,33 +741,128 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                   }
                   vc={result.isPrivate ? "var(--p-dk)" : "var(--t2)"}
                 />
-                <div
-                  style={{
-                    marginTop: 10,
-                    display: "flex",
-                    gap: 12,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {Object.entries(result.explorerLinks).map(([k, v]) => (
-                    <a
-                      key={k}
-                      href={v}
-                      target="_blank"
-                      rel="noreferrer"
+
+                {/* ── HFS Certificate ── */}
+                {result.hfs ? (
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: "12px 14px",
+                      borderRadius: "var(--r)",
+                      background: "var(--p-lt)",
+                      border: "0.5px solid var(--p-mid)",
+                    }}
+                  >
+                    <div
                       style={{
-                        fontSize: 12,
-                        color: "var(--p)",
-                        fontWeight: 500,
-                        textDecoration: "none",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 8,
                       }}
                     >
-                      {k} ↗
-                    </a>
-                  ))}
+                      <span style={{ fontSize: 15 }}>📁</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--p-dk)" }}>
+                        Certificate on Hedera File Service
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: "1px 7px",
+                          borderRadius: 20,
+                          background: "var(--p)",
+                          color: "#fff",
+                          fontWeight: 600,
+                          letterSpacing: "0.5px",
+                        }}
+                      >
+                        HFS
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        fontFamily: "var(--mono)",
+                        fontSize: 11,
+                        color: "var(--p-dk)",
+                        marginBottom: 10,
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      {result.hfs.fileId}
+                      <span style={{ color: "var(--t3)", marginLeft: 8 }}>
+                        {(result.hfs.size / 1024).toFixed(1)} KB · immutable
+                      </span>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <a
+                        href={result.hfs.certificateUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "8px 16px",
+                          borderRadius: "var(--r)",
+                          background: "var(--p)",
+                          color: "#fff",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          textDecoration: "none",
+                        }}
+                      >
+                        📥 Open Certificate
+                      </a>
+                      <a
+                        href={result.hfs.explorerUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "8px 14px",
+                          borderRadius: "var(--r)",
+                          background: "transparent",
+                          color: "var(--p-dk)",
+                          fontSize: 12,
+                          fontWeight: 500,
+                          textDecoration: "none",
+                          border: "0.5px solid var(--p-mid)",
+                        }}
+                      >
+                        ⬡ HashScan ↗
+                      </a>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* HashScan explorer links */}
+                <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {Object.entries(result.explorerLinks)
+                    .filter(([k]) => k !== "certificate")
+                    .map(([k, v]) => (
+                      <a
+                        key={k}
+                        href={v}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          fontSize: 12,
+                          color: result.hfs ? "var(--t2)" : "var(--p)",
+                          fontWeight: 500,
+                          textDecoration: "none",
+                        }}
+                      >
+                        {k} ↗
+                      </a>
+                    ))}
                 </div>
               </div>
             </div>
+
             <button style={S.btn("var(--teal-dk)")} onClick={reset}>
               Notarize another document →
             </button>
@@ -857,6 +872,8 @@ export default function SubmitFlow({ onProofCreated }: Props) {
     </div>
   );
 }
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function PayCard({
   selected,
@@ -897,19 +914,10 @@ function PayCard({
         {badge}
       </span>
       <div style={{ fontSize: 20, marginBottom: 8 }}>{icon}</div>
-      <div
-        style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: "var(--t0)",
-          marginBottom: 3,
-        }}
-      >
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)", marginBottom: 3 }}>
         {title}
       </div>
-      <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.5 }}>
-        {desc}
-      </div>
+      <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.5 }}>{desc}</div>
     </div>
   );
 }
@@ -927,16 +935,7 @@ function RRow({
 }) {
   return (
     <div style={{ display: "flex", gap: 12 }}>
-      <span
-        style={{
-          color: "var(--t2)",
-          minWidth: 120,
-          flexShrink: 0,
-          fontSize: 12,
-        }}
-      >
-        {k}
-      </span>
+      <span style={{ color: "var(--t2)", minWidth: 120, flexShrink: 0, fontSize: 12 }}>{k}</span>
       <span
         style={{
           color: vc ?? "var(--t0)",
