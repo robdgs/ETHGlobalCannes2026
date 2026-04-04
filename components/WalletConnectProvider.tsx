@@ -33,7 +33,7 @@ if (projectId) {
     metadata: {
       name: "ProvenanceChain",
       description:
-        "Prove a document existed. Publicly. Immutably. Anonymously.",
+        "Prove a document existed. Publicly. Immutably.",
       url:
         typeof window !== "undefined"
           ? window.location.origin

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 export default function TopBar() {
   const [count, setCount] = useState<number | null>(null);
@@ -41,6 +42,25 @@ export default function TopBar() {
             <b style={{ color:"var(--t0)" }}>{count}</b> documents notarized
           </span>
         )}
+        <Link href="/login" style={{ display:"inline-block" }}>
+          <button style={{
+            padding: "6px 16px",
+            fontSize: 13,
+            fontWeight: 600,
+            border: "1px solid var(--bd)",
+            borderRadius: "var(--r)",
+            background: "#fff",
+            color: "var(--t0)",
+            cursor: "pointer",
+            transition: "all 0.2s",
+          }} onMouseEnter={(e) => {
+            e.currentTarget.style.background = "var(--bg2)";
+          }} onMouseLeave={(e) => {
+            e.currentTarget.style.background = "#fff";
+          }}>
+            Login
+          </button>
+        </Link>
         <div style={{ display:"flex", alignItems:"center", gap:6, background:"var(--teal-lt)", padding:"5px 12px", borderRadius:20, fontSize:12, color:"var(--teal-dk)", fontWeight:500 }}>
           <div className="pulse" style={{ width:6, height:6, borderRadius:"50%", background:"var(--teal)" }} />
           Online · Hedera testnet

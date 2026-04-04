@@ -581,16 +581,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
                 badgeBg="var(--teal-lt)"
                 desc="Any EVM wallet. MetaMask, Rainbow, Coinbase, or mobile QR."
               />
-              <PayCard
-                selected={payMode === "unlink"}
-                onClick={() => setPayMode("unlink")}
-                icon="🔒"
-                title="Unlink ZK"
-                badge="Private"
-                badgeColor="var(--p-dk)"
-                badgeBg="var(--p-lt)"
-                desc="Zero-knowledge proof. Nobody knows it was you. Ever."
-              />
+            
             </div>
 
             {payMode && (
@@ -631,9 +622,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
               disabled={!payMode}
               onClick={runPayment}
             >
-              {payMode === "walletconnect"
-                ? "Select wallet →"
-                : "Pay anonymously with Unlink →"}
+              Select wallet →
             </button>
 
             <button

@@ -43,7 +43,7 @@ export default function HomePage() {
             {[
               { label:"Hedera Consensus Service", bg:"var(--p-lt)", c:"var(--p-dk)" },
               { label:"WalletConnect Pay", bg:"var(--blue-lt)", c:"var(--blue-dk)" },
-              { label:"Unlink ZK privacy", bg:"var(--teal-lt)", c:"var(--teal-dk)" },
+              { label:"WorldID", bg:"var(--teal-lt)", c:"var(--teal-dk)" },
             ].map(b => (
               <span key={b.label} style={{ fontSize:12, padding:"4px 12px", borderRadius:20, background:b.bg, color:b.c, fontWeight:500 }}>{b.label}</span>
             ))}
