@@ -119,7 +119,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
     if (payMode === "unlink") {
       // Close authentication modal before processing unlink payment
       closeAuthModal();
-      
+
       // Unlink: call our API which handles private payment
       setStep("processing");
       setStatusMsg("Generating ZK proof…");
@@ -173,7 +173,7 @@ export default function SubmitFlow({ onProofCreated }: Props) {
     try {
       // Close authentication modal before opening wallet modal
       closeAuthModal();
-      
+
       // Always show wallet modal first, regardless of isConnected state
       // This ensures WalletConnect popup shows instead of auto-using MetaMask
       setStatusMsg("Opening wallet modal…");
