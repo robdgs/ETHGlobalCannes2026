@@ -75,7 +75,6 @@ export default function HomePage() {
                   { icon:"📄", text:"Your file is never uploaded — only its SHA-256 fingerprint is sent." },
                   { icon:"⛓", text:"The fingerprint is recorded on Hedera, timestamped by thousands of nodes." },
                   { icon:"📜", text:"You receive an NFT certificate proving the document's existence." },
-                  { icon:"🔒", text:"Choose Unlink ZK to keep your identity completely private." },
                 ].map(({icon,text}) => (
                   <div key={text} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
                     <span style={{ fontSize:14, flexShrink:0 }}>{icon}</span>
