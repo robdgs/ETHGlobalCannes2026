@@ -1,0 +1,47 @@
+{
+  "name": "provenance-chain",
+  "version": "1.0.0",
+  "description": "Timestamped proof-of-provenance system built on native Hedera services",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "setup": "node scripts/setup.js",
+    "demo": "node scripts/demo.js",
+    "deploy:contract": "npx hardhat run scripts/deploySmartAccount.ts --network coston2",
+    "compile:contract": "npx hardhat compile"
+  },
+  "dependencies": {
+    "@hashgraph/sdk": "^2.46.0",
+    "@metamask/connect-evm": "^0.9.1",
+    "@reown/appkit": "^1.6.8",
+    "@reown/appkit-adapter-wagmi": "^1.6.8",
+    "@reown/appkit-siwx": "^1.8.19",
+    "@tanstack/react-query": "^5.28.6",
+    "@unlink-xyz/sdk": "^0.0.2-canary.0",
+    "axios": "^1.6.2",
+    "dotenv": "^17.4.0",
+    "ethers": "^6.11.1",
+    "next": "14.2.3",
+    "porto": "^0.2.37",
+    "react": "^18",
+    "react-dom": "^18",
+    "viem": "^2.21.19",
+    "wagmi": "^2.12.7"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3",
+    "hardhat": "^2.22.3",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}
