@@ -481,9 +481,9 @@ export default function HederaDashboard({ refreshTrigger, newZKEntry }: Props) {
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 value={vHash} onChange={(e) => setVHash(e.target.value)}
-                placeholder="Paste the SHA-256 hash of any document to verify it"
+                placeholder=" Paste the SHA-256 hash of any document to verify it"
                 onKeyDown={(e) => e.key === "Enter" && verify()}
-                style={{ flex: 1, marginBottom: 0 }}
+                style={{ flex: 1, marginBottom: 0, borderRadius: "var(--r)", border: "0.5px solid var(--bd)", padding: "10px 14px", fontSize: 13, fontFamily: "var(--mono)", color: "var(--t0)" }} 
               />
               <button onClick={verify} disabled={vBusy} style={{ padding: "10px 18px", borderRadius: "var(--r)", background: "var(--p)", color: "#fff", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }}>
                 {vBusy ? "…" : "Verify"}
