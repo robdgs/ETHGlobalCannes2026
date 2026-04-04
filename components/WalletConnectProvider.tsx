@@ -32,7 +32,8 @@ if (projectId) {
     defaultNetwork: networks[0],
     metadata: {
       name: "ProvenanceChain",
-      description: "Prove a document existed. Publicly. Immutably. Anonymously.",
+      description:
+        "Prove a document existed. Publicly. Immutably. Anonymously.",
       url:
         typeof window !== "undefined"
           ? window.location.origin
